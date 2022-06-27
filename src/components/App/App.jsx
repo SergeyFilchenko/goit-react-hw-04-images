@@ -1,5 +1,5 @@
 import s from './App.module.css';
-import { Component } from 'react';
+import { useReducer, useEffect } from 'react';
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { MutatingDots } from 'react-loader-spinner';
@@ -11,8 +11,8 @@ import Button from '../Button';
 import Modal from '../Modal';
 import fetchImages from '../../Services/api';
 
-class App extends Component {
-  state = {
+export default function App() {
+  const initialState = {
     query: '',
     page: 1,
     images: [],
@@ -20,109 +20,164 @@ class App extends Component {
     isModalOpen: false,
     modalImg: '',
     modalAlt: '',
-    isLoading: false,
-    totalHits: null,
+    total: 0,
   };
 
-  componentDidUpdate() {
-    const { query, page, isPending } = this.state;
-    if (isPending) {
-      fetchImages(query, page)
-        .then(data => {
-          if (data.hits.length === 0) {
-            return (
-              this.setState({ isPending: false }),
-              toast(
-                `Ypss!!! No results were found for "${query}", please edit your query.`,
-                { position: 'top-center', hideProgressBar: true }
-              )
-            );
-          }
-          this.setState(prev => ({
-            images: page > 1 ? [...prev.images, ...data.hits] : data.hits,
-            isPending: false,
-            totalHits: data.totalHits,
-          }));
-        })
-        .catch(error => {
-          console.log(error.massage);
-        });
+  const reducer = (
+    state,
+    {
+      type,
+      payload: {
+        query,
+        page,
+        images,
+        isPending,
+        isModalOpen,
+        modalImg,
+        modalAlt,
+        total,
+      },
     }
-  }
+  ) => {
+    switch (type) {
+      case 'handleSetQuery':
+        return { ...state, query: query };
+      case 'handleSubmitForm':
+        return { ...state, page: page, isPending: isPending };
+      case 'handleTogleModal':
+        return {
+          ...state,
+          isModalOpen: isModalOpen,
+          modalImg: modalImg,
+          modalAlt: modalAlt,
+        };
+      case 'handleLoadMore':
+        return { ...state, page: page, isPending: isPending };
+      case 'isPending':
+        return { ...state, isPending: isPending };
+      case 'fetchImages':
+        return {
+          ...state,
+          images: images,
+          isPending: isPending,
+        };
+      case 'total':
+        return { ...state, total: total };
 
-  handleSetQuery = ({ target: { name, value } }) => {
-    this.setState({ [name]: value.toLowerCase() });
+      default:
+        throw new Error(`Unsuported this type action ${type}`);
+    }
   };
 
-  handleSubmitForm = e => {
+  const [state, dispatch] = useReducer(reducer, initialState);
+
+  const {
+    query,
+    images,
+    isPending,
+    page,
+    isModalOpen,
+    modalImg,
+    modalAlt,
+    total,
+  } = state;
+
+  const handleSetQuery = ({ target: { value } }) => {
+    dispatch({ type: 'handleSetQuery', payload: { query: value } });
+  };
+
+  const handleSubmitForm = e => {
     e.preventDefault();
-    if (this.state.query.trim() === '') {
+    if (query.trim() === '') {
       return toast('enter your request please!', {
         position: 'top-center',
         hideProgressBar: true,
       });
     }
-    this.setState({ page: 1, isPending: true });
+    dispatch({
+      type: 'handleSubmitForm',
+      payload: { page: 1, isPending: true },
+    });
   };
 
-  handleTogleModal = (image, alt) => {
-    this.setState(prev => ({
-      isModalOpen: !prev.isModalOpen,
-      modalImg: image,
-      modalAlt: alt,
-    }));
+  const handleTogleModal = (image, alt) => {
+    dispatch({
+      type: 'handleTogleModal',
+      payload: {
+        isModalOpen: !isModalOpen,
+        modalImg: image || '',
+        modalAlt: alt || '',
+      },
+    });
   };
 
-  handleLoadMore = () => {
-    this.setState(prev => ({ page: prev.page + 1, isPending: true }));
+  const handleLoadMore = () => {
+    dispatch({
+      type: 'handleLoadMore',
+      payload: { page: page + 1, isPending: true },
+    });
   };
 
-  render() {
-    const {
-      query,
-      images,
-      isPending,
-      isModalOpen,
-      modalImg,
-      modalAlt,
-      // isEnding,
-      page,
-      totalHits,
-    } = this.state;
-    const totalPage = totalHits / 12;
-    const {
-      handleSetQuery,
-      handleSubmitForm,
-      handleTogleModal,
-      handleLoadMore,
-    } = this;
+  useEffect(() => {
+    if (isPending) {
+      fetchImages(query, page)
+        .then(data => {
+          dispatch({ type: 'total', payload: { total: data.total } });
+          if (data.hits.length === 0) {
+            return (
+              dispatch({ type: 'isPending', payload: { isPending: false } }),
+              toast(
+                `Ypss!!! No results were found for "${query}", please edit your query.`,
+                {
+                  position: 'top-center',
+                  hideProgressBar: true,
+                }
+              )
+            );
+          }
+          dispatch(
+            page > 1
+              ? {
+                  type: 'fetchImages',
+                  payload: {
+                    images: [...images, ...data.hits],
+                    isPending: false,
+                  },
+                }
+              : {
+                  type: 'fetchImages',
+                  payload: { images: [...data.hits], isPending: false },
+                }
+          );
+        })
+        .catch(error => {
+          console.log(error.massage);
+        });
+    }
+  }, [images, isPending, page, query]);
 
-    return (
-      <div className={s.App}>
-        <Searchbar
-          query={query}
-          handleSetQuery={handleSetQuery}
-          handleSubmitForm={handleSubmitForm}
+  return (
+    <div className={s.App}>
+      <Searchbar
+        handleSetQuery={handleSetQuery}
+        handleSubmitForm={handleSubmitForm}
+        query={query}
+      />
+      {images.length >= 1 && (
+        <ImageGallery handleTogleModal={handleTogleModal} images={images} />
+      )}
+      {isPending && <MutatingDots ariaLabel="loading" />}
+      {images.length >= 12 && images.length !== total && (
+        <Button handleLoadMore={handleLoadMore} />
+      )}
+      {isModalOpen && (
+        <Modal
+          modalImg={modalImg}
+          handleTogleModal={handleTogleModal}
+          tag={modalAlt}
         />
-        {images.length >= 1 && (
-          <ImageGallery handleTogleModal={handleTogleModal} images={images} />
-        )}
-        {isPending && <MutatingDots ariaLabel="loading" />}
-        {images.length >= 1 && totalPage > page && (
-          <Button handleLoadMore={handleLoadMore} />
-        )}
-        )}
-        {isModalOpen && (
-          <Modal
-            modalImg={modalImg}
-            handleTogleModal={handleTogleModal}
-            tag={modalAlt}
-          />
-        )}
-        <ToastContainer autoClose={2500} />
-      </div>
-    );
-  }
+      )}
+      <ToastContainer autoClose={2500} />
+    </div>
+  );
 }
-
-export default App;
